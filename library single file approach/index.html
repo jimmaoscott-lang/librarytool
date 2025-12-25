@@ -1,0 +1,682 @@
+
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BookCard.ai - Your Family Library</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📚</text></svg>">
+    <meta name="theme-color" content="#0a0f1a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="BookCard">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 192 192%22><rect width=%22192%22 height=%22192%22 fill=%22%233b82f6%22 rx=%2248%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 font-size=%22100%22 fill=%22white%22>📚</text></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3b82f6',
+                        'background-dark': '#0a0f1a',
+                        'surface-dark': '#111827',
+                        'card-dark': '#1f2937',
+                        'text-secondary': '#9ca3af',
+                    },
+                    fontFamily: { sans: ['Plus Jakarta Sans', 'Inter', 'sans-serif'] },
+                }
+            }
+        }
+    </script>
+    <style>
+        :root { --bg-color: #0a0f1a; }
+        body { 
+            background-color: var(--bg-color); 
+            color: white; margin: 0; min-height: 100vh; 
+            overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        #app-loader {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: var(--bg-color); z-index: 1000; transition: opacity 0.5s ease-out;
+        }
+        .loader-pulse {
+            position: relative; width: 80px; height: 80px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .loader-pulse::before {
+            content: ''; position: absolute; border: 4px solid #3b82f6;
+            border-radius: 50%; width: 100%; height: 100%;
+            animation: pulse 2s linear infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0); opacity: 1; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+        .glass {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="app-loader">
+        <div class="loader-pulse mb-8">
+            <span class="material-symbols-outlined text-primary text-4xl">auto_stories</span>
+        </div>
+        <p class="text-white font-medium text-lg tracking-wide animate-pulse">Initializing Library...</p>
+        <button id="retry-button" onclick="location.reload()" class="mt-8 px-6 py-2 bg-white/5 border border-white/10 rounded-lg text-sm hidden">Reload App</button>
+    </div>
+
+    <div id="root"></div>
+    
+    <script type="module">
+        import React, { useState, useEffect, useRef } from 'https://esm.sh/react@18.2.0';
+        import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+        import { GoogleGenerativeAI } from 'https://esm.sh/@google/generative-ai@0.21.0';
+
+        const { createElement: h, Fragment } = React;
+
+        // ============= GEMINI SERVICE =============
+        const analyzeBookCover = async (base64Image) => {
+            // ADD YOUR API KEY HERE - between the quotes
+            const apiKey = 'AIzaSyDd3djRsJfHdGEObhRWOQE1cvjaLYm5b1w';
+            
+            if (!apiKey || apiKey.trim() === '') {
+                throw new Error('Please add your Gemini API key on line 102 of index.html');
+            }
+            
+            try {
+                const genAI = new GoogleGenerativeAI(apiKey);
+                const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+                
+                const prompt = `Identify this book from its cover. Extract: title, author, original publication year, edition (if noted), primary language, and current estimated market value in USD. Provide a 2-sentence description for a private library catalog and assess its condition as "New", "Fine", "Good", "Fair", or "Poor" based on the image.
+
+Return ONLY valid JSON in this exact format:
+{
+  "title": "string",
+  "author": "string", 
+  "year": "string",
+  "edition": "string",
+  "condition": "string",
+  "language": "string",
+  "notes": "string",
+  "estimatedValue": "string"
+}`;
+
+                const result = await model.generateContent([
+                    prompt,
+                    {
+                        inlineData: {
+                            mimeType: 'image/jpeg',
+                            data: base64Image
+                        }
+                    }
+                ]);
+                
+                const response = await result.response;
+                const text = response.text();
+                
+                // Clean up the response to extract JSON
+                const jsonMatch = text.match(/\{[\s\S]*\}/);
+                if (!jsonMatch) {
+                    throw new Error('Could not parse AI response');
+                }
+                
+                return JSON.parse(jsonMatch[0]);
+            } catch (error) {
+                console.error('Analysis error:', error);
+                if (error.message.includes('API')) {
+                    throw new Error('Invalid API key. Please check your Gemini API key.');
+                }
+                throw new Error('AI analysis failed. Please try again.');
+            }
+        };
+
+        // ============= LANDING PAGE =============
+        const LandingPage = ({ onStart, onOpenLibrary }) => {
+            return h('div', { className: 'flex flex-col min-h-screen bg-background-dark' },
+                // Header
+                h('header', { className: 'sticky top-0 z-50 w-full border-b border-white/5 glass' },
+                    h('div', { className: 'mx-auto flex h-20 max-w-7xl items-center justify-between px-6' },
+                        h('div', { className: 'flex items-center gap-3' },
+                            h('div', { className: 'flex items-center justify-center rounded-xl bg-primary/20 p-2 shadow-lg shadow-primary/20' },
+                                h('span', { className: 'material-symbols-outlined text-primary text-[28px]' }, 'auto_stories')
+                            ),
+                            h('span', { className: 'text-xl font-extrabold tracking-tighter' }, 
+                                'BookCard',
+                                h('span', { className: 'text-primary' }, '.ai')
+                            )
+                        ),
+                        h('div', { className: 'hidden md:flex items-center gap-10' },
+                            h('button', { onClick: onOpenLibrary, className: 'text-sm font-semibold text-gray-400 hover:text-white transition-all' }, 'My Collection'),
+                            h('a', { href: '#how', className: 'text-sm font-semibold text-gray-400 hover:text-white transition-all' }, 'How it Works'),
+                            h('div', { className: 'h-4 w-px bg-white/10' }),
+                            h('button', { 
+                                onClick: onStart,
+                                className: 'px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-bold shadow-2xl shadow-primary/30 hover:scale-105 active:scale-95 transition-all'
+                            }, 'Start Scanning')
+                        ),
+                        h('button', { onClick: onStart, className: 'md:hidden size-10 flex items-center justify-center rounded-full bg-primary/20 text-primary' },
+                            h('span', { className: 'material-symbols-outlined' }, 'add_a_photo')
+                        )
+                    )
+                ),
+                // Hero
+                h('section', { className: 'relative pt-20 pb-32 overflow-hidden' },
+                    h('div', { className: 'absolute top-0 left-1/2 -translate-x-1/2 w-[100vw] h-[600px] bg-primary/5 rounded-[100%] blur-[120px] -z-10' }),
+                    h('div', { className: 'mx-auto max-w-7xl px-6 text-center' },
+                        h('div', { className: 'inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/20 bg-primary/5 text-primary text-xs font-bold uppercase tracking-widest mb-10 animate-bounce' }, '✨ AI-Powered Family Archive'),
+                        h('h1', { className: 'text-5xl md:text-7xl font-black tracking-tight leading-[1.1] mb-8 bg-clip-text text-transparent bg-gradient-to-b from-white to-gray-400' },
+                            'Your Personal Library',
+                            h('br'),
+                            h('span', { className: 'text-primary' }, 'Digitized in Seconds')
+                        ),
+                        h('p', { className: 'max-w-2xl mx-auto text-lg md:text-xl text-gray-400 leading-relaxed mb-12' },
+                            'Professional cataloging for your home book collection. Just snap a photo, and let Gemini AI handle the metadata, valuation, and descriptions.'
+                        ),
+                        h('div', { className: 'flex flex-col sm:flex-row items-center justify-center gap-6 mb-20' },
+                            h('button', { 
+                                onClick: onStart,
+                                className: 'w-full sm:w-auto px-10 py-5 rounded-2xl bg-white text-black text-lg font-bold shadow-2xl hover:bg-gray-200 hover:-translate-y-1 transition-all flex items-center justify-center gap-3'
+                            },
+                                h('span', { className: 'material-symbols-outlined text-2xl' }, 'center_focus_weak'),
+                                'Open Scanner'
+                            ),
+                            h('button', {
+                                onClick: onOpenLibrary,
+                                className: 'w-full sm:w-auto px-10 py-5 rounded-2xl border border-white/10 glass text-white text-lg font-bold hover:bg-white/5 transition-all flex items-center justify-center gap-3'
+                            },
+                                h('span', { className: 'material-symbols-outlined text-2xl' }, 'grid_view'),
+                                'View Library'
+                            )
+                        )
+                    )
+                ),
+                // Features
+                h('section', { className: 'py-32 bg-black/30', id: 'how' },
+                    h('div', { className: 'mx-auto max-w-7xl px-6' },
+                        h('div', { className: 'text-center mb-20' },
+                            h('h2', { className: 'text-3xl md:text-5xl font-bold mb-6' }, 'Built for Book Lovers'),
+                            h('p', { className: 'text-gray-400 text-lg' }, 'Four steps to a perfect digital archive.')
+                        ),
+                        h('div', { className: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8' },
+                            [
+                                { icon: 'camera', title: 'Smart Scanner', desc: 'Auto-edge detection and perspective correction for perfect cover captures.' },
+                                { icon: 'brain', title: 'Gemini AI', desc: 'Instantly extracts title, author, year, and identifies rare editions.' },
+                                { icon: 'currency_exchange', title: 'Real-time Valuation', desc: 'Get instant retail estimates based on current market trends.' },
+                                { icon: 'cloud_sync', title: 'Local-First Sync', desc: 'Data is saved instantly to your device. No cloud delays or account needed.' },
+                            ].map((f, i) =>
+                                h('div', { key: i, className: 'group p-8 rounded-3xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.05] transition-all' },
+                                    h('div', { className: 'size-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary mb-6 group-hover:scale-110 transition-transform' },
+                                        h('span', { className: 'material-symbols-outlined text-[32px]' }, f.icon)
+                                    ),
+                                    h('h3', { className: 'text-xl font-bold mb-3' }, f.title),
+                                    h('p', { className: 'text-gray-400 text-sm leading-relaxed' }, f.desc)
+                                )
+                            )
+                        )
+                    )
+                ),
+                // Footer
+                h('footer', { className: 'border-t border-white/5 py-12 bg-background-dark' },
+                    h('div', { className: 'mx-auto max-w-7xl px-6 flex flex-col md:flex-row items-center justify-between gap-8' },
+                        h('div', { className: 'flex items-center gap-3' },
+                            h('span', { className: 'material-symbols-outlined text-primary' }, 'auto_stories'),
+                            h('span', { className: 'text-lg font-bold' }, 'BookCard.ai')
+                        ),
+                        h('p', { className: 'text-gray-500 text-sm italic' }, '"A library is not a luxury but one of the necessities of life."')
+                    ),
+                    h('div', { className: 'text-center mt-12 text-[10px] text-gray-700 uppercase tracking-widest font-bold' },
+                        '© 2024 BookCard Collective • No Tracking • No Ads'
+                    )
+                )
+            );
+        };
+
+        // ============= SCANNER PAGE =============
+        const ScannerPage = ({ onClose, onComplete }) => {
+            const videoRef = useRef(null);
+            const canvasRef = useRef(null);
+            const [stream, setStream] = useState(null);
+            const [isAnalyzing, setIsAnalyzing] = useState(false);
+            const [capturedImages, setCapturedImages] = useState([]);
+            const [status, setStatus] = useState('Tap the camera button to capture');
+
+            useEffect(() => {
+                let currentStream = null;
+                
+                async function startCamera() {
+                    try {
+                        const mediaStream = await navigator.mediaDevices.getUserMedia({
+                            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+                            audio: false
+                        });
+                        currentStream = mediaStream;
+                        setStream(mediaStream);
+                        if (videoRef.current) {
+                            videoRef.current.srcObject = mediaStream;
+                        }
+                    } catch (err) {
+                        console.error("Camera error:", err);
+                        setStatus("Please allow camera access.");
+                    }
+                }
+                
+                startCamera();
+                
+                return () => {
+                    if (currentStream) {
+                        currentStream.getTracks().forEach(track => track.stop());
+                    }
+                };
+            }, []);
+
+            const capturePhoto = () => {
+                if (!videoRef.current || !canvasRef.current || isAnalyzing) return;
+                const context = canvasRef.current.getContext('2d');
+                if (!context) return;
+
+                canvasRef.current.width = videoRef.current.videoWidth;
+                canvasRef.current.height = videoRef.current.videoHeight;
+                context.drawImage(videoRef.current, 0, 0);
+                const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.85);
+                setCapturedImages(prev => [...prev, dataUrl]);
+                
+                if ('vibrate' in navigator) navigator.vibrate(50);
+            };
+
+            const handleFinish = async () => {
+                if (capturedImages.length === 0) return;
+                setIsAnalyzing(true);
+                setStatus("AI Analysis in Progress...");
+                
+                try {
+                    const base64 = capturedImages[0].split(',')[1];
+                    const data = await analyzeBookCover(base64);
+                    
+                    const newBook = {
+                        id: crypto.randomUUID(),
+                        ...data,
+                        coverUrl: capturedImages[0],
+                        capturedAt: Date.now(),
+                    };
+                    
+                    onComplete(newBook);
+                } catch (err) {
+                    console.error("Analysis failed:", err);
+                    setIsAnalyzing(false);
+                    setStatus(err.message || "Try another angle or more light.");
+                }
+            };
+
+            return h('div', { className: 'fixed inset-0 z-[100] flex flex-col bg-black text-white overflow-hidden' },
+                h('header', { className: 'p-4 flex items-center justify-between z-30 flex-shrink-0' },
+                    h('button', { onClick: onClose, className: 'size-10 rounded-full glass flex items-center justify-center text-white' },
+                        h('span', { className: 'material-symbols-outlined text-xl' }, 'close')
+                    ),
+                    h('div', { className: 'flex flex-col items-center' },
+                        h('h2', { className: 'text-xs font-bold tracking-widest uppercase' }, 'Scanner'),
+                        h('span', { className: 'text-[9px] text-primary font-bold tracking-[0.2em]' }, status)
+                    ),
+                    h('div', { className: 'size-10 rounded-full glass flex items-center justify-center text-primary' },
+                        h('span', { className: 'material-symbols-outlined text-xl' }, 'settings_overscan')
+                    )
+                ),
+                h('div', { className: 'relative flex-1 flex flex-col items-center justify-center px-4 py-2 min-h-0' },
+                    h('div', { className: 'relative w-full max-w-sm aspect-[3/4] max-h-[60vh] rounded-[2rem] overflow-hidden border-2 border-white/20 shadow-[0_0_50px_rgba(0,0,0,0.5)] bg-zinc-900' },
+                        h('video', { ref: videoRef, autoPlay: true, playsInline: true, muted: true, className: 'w-full h-full object-cover grayscale-[20%]' }),
+                        h('canvas', { ref: canvasRef, className: 'hidden' }),
+                        h('div', { className: 'absolute inset-0 z-10 pointer-events-none p-10 flex flex-col justify-between' },
+                            h('div', { className: 'flex justify-between' },
+                                h('div', { className: 'size-12 border-l-2 border-t-2 border-primary/60 rounded-tl-3xl' }),
+                                h('div', { className: 'size-12 border-r-2 border-t-2 border-primary/60 rounded-tr-3xl' })
+                            ),
+                            h('div', { className: 'flex justify-between' },
+                                h('div', { className: 'size-12 border-l-2 border-b-2 border-primary/60 rounded-bl-3xl' }),
+                                h('div', { className: 'size-12 border-r-2 border-b-2 border-primary/60 rounded-br-3xl' })
+                            )
+                        ),
+                        isAnalyzing && h('div', { className: 'absolute inset-0 z-40 glass flex flex-col items-center justify-center p-12 text-center' },
+                            h('div', { className: 'loader-pulse mb-8' },
+                                h('span', { className: 'material-symbols-outlined text-primary text-4xl' }, 'neurology')
+                            ),
+                            h('h3', { className: 'text-2xl font-black mb-2 tracking-tight' }, 'Processing Cover'),
+                            h('p', { className: 'text-gray-400 text-sm leading-relaxed' }, 'Gemini AI is identifying the title and market valuation...')
+                        ),
+                        h('div', { className: 'absolute top-6 left-6 z-20 flex items-center gap-2 px-2 py-1 glass rounded-md border-white/10' },
+                            h('div', { className: 'size-2 bg-red-500 rounded-full animate-pulse' }),
+                            h('span', { className: 'text-[10px] font-bold uppercase tracking-widest' }, 'Live Feed')
+                        )
+                    )
+                ),
+                h('div', { className: 'p-4 pb-6 flex flex-col items-center gap-4 z-30 flex-shrink-0 bg-black/50' },
+                    h('div', { className: 'flex gap-3 overflow-x-auto w-full max-w-sm scrollbar-hide py-1 px-2 justify-center' },
+                        capturedImages.map((img, i) =>
+                            h('div', { key: i, className: 'relative size-12 flex-none rounded-lg overflow-hidden border-2 border-primary shadow-xl ring-2 ring-black' },
+                                h('img', { src: img, className: 'w-full h-full object-cover' })
+                            )
+                        ),
+                        capturedImages.length === 0 && h('div', { className: 'size-12 flex-none rounded-lg border-2 border-dashed border-white/20 flex items-center justify-center text-white/20' },
+                            h('span', { className: 'material-symbols-outlined text-xl' }, 'image')
+                        )
+                    ),
+                    h('div', { className: 'flex items-center gap-6 w-full max-w-sm justify-center' },
+                        h('button', { 
+                            onClick: capturePhoto,
+                            disabled: isAnalyzing,
+                            className: 'group relative'
+                        },
+                            h('div', { className: 'size-20 rounded-full border-4 border-white flex items-center justify-center shadow-2xl active:scale-90 transition-transform bg-white/5' },
+                                h('div', { className: 'size-16 rounded-full bg-white flex items-center justify-center' },
+                                    h('span', { className: 'material-symbols-outlined text-black text-3xl' }, 'photo_camera')
+                                )
+                            )
+                        ),
+                        capturedImages.length > 0 && h('button', {
+                            onClick: handleFinish,
+                            disabled: isAnalyzing,
+                            className: 'flex-1 max-w-[200px] py-3 rounded-xl bg-primary text-white font-bold text-sm shadow-2xl shadow-primary/40 hover:-translate-y-1 active:scale-95 transition-all flex items-center justify-center gap-2 animate-fade-in'
+                        },
+                            h('span', { className: 'material-symbols-outlined text-lg' }, 'auto_fix_high'),
+                            `Analyze (${capturedImages.length})`
+                        )
+                    )
+                )
+            );
+        };
+
+        // ============= LIBRARY PAGE =============
+        const LibraryPage = ({ books, onSelectBook, onStartScan, onGoBack }) => {
+            const [search, setSearch] = useState('');
+            
+            const filteredBooks = books.filter(b => 
+                b.title.toLowerCase().includes(search.toLowerCase()) || 
+                b.author.toLowerCase().includes(search.toLowerCase())
+            );
+
+            return h('div', { className: 'flex flex-col min-h-screen bg-background-dark pb-24' },
+                h('header', { className: 'sticky top-0 z-40 border-b border-white/5 glass' },
+                    h('div', { className: 'mx-auto max-w-7xl px-6 h-20 flex items-center justify-between gap-6' },
+                        h('button', { onClick: onGoBack, className: 'flex items-center gap-3 group' },
+                            h('div', { className: 'size-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform' },
+                                h('span', { className: 'material-symbols-outlined' }, 'auto_stories')
+                            ),
+                            h('span', { className: 'hidden sm:block text-xl font-black tracking-tight' },
+                                'Shelf',
+                                h('span', { className: 'text-primary' }, '.ai')
+                            )
+                        ),
+                        h('div', { className: 'flex-1 max-w-md relative group' },
+                            h('span', { className: 'absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-gray-500 group-focus-within:text-primary transition-colors' }, 'search'),
+                            h('input', {
+                                type: 'text',
+                                placeholder: 'Filter by title or author...',
+                                value: search,
+                                onChange: (e) => setSearch(e.target.value),
+                                className: 'w-full h-11 pl-12 pr-4 rounded-xl bg-white/[0.03] border border-white/5 focus:border-primary focus:ring-1 focus:ring-primary outline-none text-sm transition-all'
+                            })
+                        ),
+                        h('button', {
+                            onClick: onStartScan,
+                            className: 'flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-bold shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all'
+                        },
+                            h('span', { className: 'material-symbols-outlined text-[20px]' }, 'add_a_photo'),
+                            h('span', { className: 'hidden md:inline' }, 'Scan New')
+                        )
+                    )
+                ),
+                h('main', { className: 'flex-1 mx-auto max-w-7xl px-6 py-10 w-full' },
+                    h('div', { className: 'flex items-center justify-between mb-12' },
+                        h('div', null,
+                            h('h2', { className: 'text-3xl font-black tracking-tight mb-2' }, 'My Collection'),
+                            h('p', { className: 'text-gray-500 text-sm' }, `${filteredBooks.length} Total Volumes`)
+                        ),
+                        h('div', { className: 'flex gap-2' },
+                            h('button', { className: 'size-10 rounded-lg glass flex items-center justify-center text-primary' },
+                                h('span', { className: 'material-symbols-outlined' }, 'grid_view')
+                            ),
+                            h('button', { className: 'size-10 rounded-lg glass flex items-center justify-center text-gray-500' },
+                                h('span', { className: 'material-symbols-outlined' }, 'view_headline')
+                            )
+                        )
+                    ),
+                    filteredBooks.length === 0 ? h('div', { className: 'flex flex-col items-center justify-center py-32 text-center opacity-50' },
+                        h('div', { className: 'size-24 rounded-full border-2 border-dashed border-gray-700 flex items-center justify-center mb-6' },
+                            h('span', { className: 'material-symbols-outlined text-5xl' }, 'menu_book')
+                        ),
+                        h('h3', { className: 'text-xl font-bold mb-2' }, 'No results found'),
+                        h('p', { className: 'text-gray-500 max-w-xs' }, 'Start building your library by scanning a book cover.'),
+                        h('button', { onClick: onStartScan, className: 'mt-8 text-primary font-bold hover:underline' }, 'Launch Scanner')
+                    ) : h('div', { className: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-8 gap-y-12' },
+                        filteredBooks.map(book =>
+                            h('div', {
+                                key: book.id,
+                                onClick: () => onSelectBook(book.id),
+                                className: 'group cursor-pointer flex flex-col gap-4 animate-fade-in'
+                            },
+                                h('div', { className: 'relative aspect-[2/3] rounded-2xl overflow-hidden shadow-xl shadow-black/40 border border-white/5 transition-all duration-500 group-hover:-translate-y-2 group-hover:shadow-primary/20' },
+                                    h('img', {
+                                        src: book.coverUrl,
+                                        alt: book.title,
+                                        className: 'w-full h-full object-cover group-hover:scale-110 transition-transform duration-700'
+                                    }),
+                                    h('div', { className: 'absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4' },
+                                        h('span', { className: 'text-[10px] font-black uppercase tracking-widest text-primary mb-1' }, 'View Metadata'),
+                                        h('div', { className: 'h-1 w-8 bg-primary rounded-full' })
+                                    ),
+                                    h('div', { className: 'absolute top-3 right-3 glass px-2 py-1 rounded-md text-[10px] font-bold text-primary border-primary/20' },
+                                        book.estimatedValue
+                                    )
+                                ),
+                                h('div', { className: 'space-y-1' },
+                                    h('h3', { className: 'font-bold text-base leading-tight group-hover:text-primary transition-colors line-clamp-1' }, book.title),
+                                    h('p', { className: 'text-xs text-gray-500 font-medium line-clamp-1' }, `${book.author} • ${book.year}`)
+                                )
+                            )
+                        )
+                    )
+                ),
+                h('button', {
+                    onClick: onStartScan,
+                    className: 'fixed bottom-8 right-8 size-16 rounded-full bg-primary text-white shadow-[0_15px_40px_rgba(59,130,246,0.4)] flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-50 md:hidden'
+                },
+                    h('span', { className: 'material-symbols-outlined text-3xl' }, 'add_a_photo')
+                )
+            );
+        };
+
+        // ============= DETAILS PAGE =============
+        const DetailsPage = ({ book, onBack, onDelete, onAdd }) => {
+            return h('div', { className: 'flex flex-col min-h-screen bg-background-dark' },
+                h('nav', { className: 'p-6 flex items-center justify-between z-20 sticky top-0 glass border-b border-white/5' },
+                    h('button', { onClick: onBack, className: 'flex items-center gap-2 text-gray-400 hover:text-white transition-colors group' },
+                        h('span', { className: 'material-symbols-outlined group-hover:-translate-x-1 transition-transform' }, 'arrow_back'),
+                        h('span', { className: 'text-sm font-bold uppercase tracking-widest' }, 'Back')
+                    ),
+                    h('div', { className: 'flex items-center gap-3' },
+                        h('button', { onClick: () => onDelete(book.id), className: 'size-11 rounded-xl glass flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors' },
+                            h('span', { className: 'material-symbols-outlined' }, 'delete')
+                        ),
+                        h('button', { onClick: onAdd, className: 'px-6 h-11 rounded-xl bg-primary text-white font-bold text-sm shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all' },
+                            'Scan Next'
+                        )
+                    )
+                ),
+                h('main', { className: 'flex-1 relative pb-20 overflow-hidden' },
+                    h('div', {
+                        className: 'absolute inset-0 -z-10 bg-cover bg-center blur-[120px] opacity-20 scale-150',
+                        style: { backgroundImage: `url('${book.coverUrl}')` }
+                    }),
+                    h('div', { className: 'mx-auto max-w-7xl px-6 pt-12' },
+                        h('div', { className: 'grid grid-cols-1 lg:grid-cols-12 gap-12 items-start' },
+                            h('div', { className: 'lg:col-span-5 flex justify-center' },
+                                h('div', { className: 'relative group max-w-sm w-full animate-fade-in' },
+                                    h('div', { className: 'absolute -inset-4 bg-primary/20 blur-[60px] rounded-full opacity-30 group-hover:opacity-50 transition-opacity' }),
+                                    h('div', { className: 'relative aspect-[2/3] rounded-3xl overflow-hidden shadow-[0_50px_100px_-20px_rgba(0,0,0,0.6)] border border-white/10' },
+                                        h('img', { src: book.coverUrl, className: 'w-full h-full object-cover', alt: book.title })
+                                    )
+                                )
+                            ),
+                            h('div', { className: 'lg:col-span-7 space-y-10' },
+                                h('div', { className: 'space-y-4' },
+                                    h('div', { className: 'flex flex-wrap gap-2' },
+                                        h('span', { className: 'px-3 py-1 rounded-full bg-primary/20 text-primary text-[10px] font-black uppercase tracking-[0.2em]' }, book.condition),
+                                        h('span', { className: 'px-3 py-1 rounded-full bg-white/5 text-gray-400 text-[10px] font-black uppercase tracking-[0.2em]' }, book.language)
+                                    ),
+                                    h('h1', { className: 'text-4xl md:text-6xl font-black leading-tight tracking-tight' }, book.title),
+                                    h('p', { className: 'text-xl md:text-2xl text-gray-400 font-medium italic' }, `by ${book.author}`)
+                                ),
+                                h('div', { className: 'grid grid-cols-2 sm:grid-cols-4 gap-4' },
+                                    [
+                                        { label: 'Market Value', value: book.estimatedValue, icon: 'payments', color: 'text-green-400' },
+                                        { label: 'Published', value: book.year, icon: 'calendar_today' },
+                                        { label: 'Edition', value: book.edition || 'First', icon: 'auto_stories' },
+                                        { label: 'Shelf ID', value: `#${book.id.slice(0,4).toUpperCase()}`, icon: 'tag' },
+                                    ].map((stat, i) =>
+                                        h('div', { key: i, className: 'glass p-5 rounded-2xl border-white/10 group hover:border-primary/40 transition-colors' },
+                                            h('span', { className: 'material-symbols-outlined text-primary mb-3 text-[20px]' }, stat.icon),
+                                            h('p', { className: 'text-[10px] uppercase font-bold text-gray-500 tracking-widest mb-1' }, stat.label),
+                                            h('p', { className: `text-lg font-black truncate ${stat.color || 'text-white'}` }, stat.value)
+                                        )
+                                    )
+                                ),
+                                h('div', { className: 'space-y-4' },
+                                    h('h3', { className: 'text-xs font-black uppercase tracking-[0.3em] text-gray-600 flex items-center gap-2' },
+                                        h('span', { className: 'h-px w-8 bg-gray-800' }),
+                                        'Description & Notes'
+                                    ),
+                                    h('div', { className: 'glass p-8 rounded-3xl border-white/5 leading-relaxed text-gray-300 text-lg font-medium' },
+                                        book.notes
+                                    )
+                                ),
+                                h('div', { className: 'flex flex-wrap gap-4 pt-6' },
+                                    h('button', { className: 'flex-1 min-w-[160px] h-14 rounded-2xl bg-white text-black font-black text-sm flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-95 transition-all' },
+                                        h('span', { className: 'material-symbols-outlined' }, 'share'),
+                                        'Export Card'
+                                    ),
+                                    h('button', { className: 'flex-1 min-w-[160px] h-14 rounded-2xl glass text-white font-black text-sm flex items-center justify-center gap-3 hover:bg-white/5 transition-all' },
+                                        h('span', { className: 'material-symbols-outlined' }, 'edit_note'),
+                                        'Edit Details'
+                                    )
+                                )
+                            )
+                        )
+                    )
+                ),
+                h('div', { className: 'fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 glass py-3 px-6 rounded-full border-white/10 animate-fade-in shadow-2xl' },
+                    h('div', { className: 'size-2 bg-green-500 rounded-full shadow-[0_0_10px_#22c55e]' }),
+                    h('span', { className: 'text-[10px] font-black uppercase tracking-[0.2em] text-gray-300' }, 'Archive Locally Synced')
+                )
+            );
+        };
+
+        // ============= MAIN APP =============
+        const App = () => {
+            const [view, setView] = useState('landing');
+            const [library, setLibrary] = useState([]);
+            const [selectedBookId, setSelectedBookId] = useState(null);
+
+            useEffect(() => {
+                const saved = localStorage.getItem('bookcard_library');
+                if (saved) {
+                    try {
+                        setLibrary(JSON.parse(saved));
+                    } catch (e) {
+                        console.error("Failed to load library", e);
+                    }
+                }
+            }, []);
+
+            useEffect(() => {
+                localStorage.setItem('bookcard_library', JSON.stringify(library));
+            }, [library]);
+
+            const navigate = (newView, bookId) => {
+                if (bookId) setSelectedBookId(bookId);
+                setView(newView);
+                window.scrollTo(0, 0);
+            };
+
+            const addBook = (book) => {
+                setLibrary(prev => [book, ...prev]);
+            };
+
+            const removeBook = (id) => {
+                setLibrary(prev => prev.filter(b => b.id !== id));
+                setView('library');
+            };
+
+            const selectedBook = library.find(b => b.id === selectedBookId);
+
+            return h('div', { className: 'min-h-screen flex flex-col bg-background-dark text-white selection:bg-primary selection:text-white' },
+                view === 'landing' && h(LandingPage, { 
+                    onStart: () => setView('scanner'), 
+                    onOpenLibrary: () => setView('library') 
+                }),
+                view === 'scanner' && h(ScannerPage, {
+                    onClose: () => setView('landing'),
+                    onComplete: (book) => {
+                        addBook(book);
+                        navigate('details', book.id);
+                    }
+                }),
+                view === 'library' && h(LibraryPage, {
+                    books: library,
+                    onSelectBook: (id) => navigate('details', id),
+                    onStartScan: () => setView('scanner'),
+                    onGoBack: () => setView('landing')
+                }),
+                view === 'details' && selectedBook && h(DetailsPage, {
+                    book: selectedBook,
+                    onBack: () => setView('library'),
+                    onDelete: removeBook,
+                    onAdd: () => setView('scanner')
+                })
+            );
+        };
+
+        // ============= INITIALIZE APP =============
+        const rootElement = document.getElementById('root');
+        if (rootElement) {
+            const root = createRoot(rootElement);
+            root.render(h(App));
+            
+            const loader = document.getElementById('app-loader');
+            if (loader) {
+                loader.style.opacity = '0';
+                setTimeout(() => {
+                    loader.style.display = 'none';
+                }, 500);
+            }
+        }
+
+        setTimeout(() => {
+            const btn = document.getElementById('retry-button');
+            const loader = document.getElementById('app-loader');
+            if (btn && loader && loader.style.display !== 'none') {
+                btn.classList.remove('hidden');
+            }
+        }, 5000);
+    </script>
+</body>
+</html>

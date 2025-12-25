@@ -107,7 +107,7 @@
             
             try {
                 const genAI = new GoogleGenerativeAI(apiKey);
-                const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+                const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
                 
                 const prompt = `Identify this book from its cover. Extract: title, author, original publication year, edition (if noted), primary language, and current estimated market value in USD. Provide a 2-sentence description for a private library catalog and assess its condition as "New", "Fine", "Good", "Fair", or "Poor" based on the image.
 
@@ -680,3 +680,4 @@ Return ONLY valid JSON in this exact format:
     </script>
 </body>
 </html>
+

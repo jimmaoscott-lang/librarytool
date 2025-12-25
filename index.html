@@ -97,57 +97,48 @@
         const { createElement: h, Fragment } = React;
 
         // ============= GEMINI SERVICE =============
+    // ============= GEMINI SERVICE =============
         const analyzeBookCover = async (base64Image) => {
-            // ADD YOUR API KEY HERE - between the quotes
+            // 1. PASTE YOUR API KEY HERE
             const apiKey = 'AIzaSyDd3djRsJfHdGEObhRWOQE1cvjaLYm5b1w';
             
-            if (!apiKey || apiKey.trim() === '') {
-                throw new Error('Please add your Gemini API key on line 102 of index.html');
+            if (!apiKey || apiKey.includes('YOUR_ACTUAL')) {
+                throw new Error('Please add your Gemini API key inside the analyzeBookCover function.');
             }
             
             try {
                 const genAI = new GoogleGenerativeAI(apiKey);
-                const model = genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
+                // Using v1beta features for structured JSON
+                const model = genAI.getGenerativeModel({ 
+                    model: 'gemini-3-flash-preview',
+                    generationConfig: { responseMimeType: "application/json" }
+                });
                 
-                const prompt = `Identify this book from its cover. Extract: title, author, original publication year, edition (if noted), primary language, and current estimated market value in USD. Provide a 2-sentence description for a private library catalog and assess its condition as "New", "Fine", "Good", "Fair", or "Poor" based on the image.
-
-Return ONLY valid JSON in this exact format:
-{
-  "title": "string",
-  "author": "string", 
-  "year": "string",
-  "edition": "string",
-  "condition": "string",
-  "language": "string",
-  "notes": "string",
-  "estimatedValue": "string"
-}`;
+                const prompt = `Identify this book from its cover. Extract: title, author, original publication year, edition, primary language, and current estimated market value in USD. Provide a 2-sentence description and assess condition as "New", "Fine", "Good", "Fair", or "Poor".
+                
+                Return ONLY valid JSON:
+                {
+                  "title": "string",
+                  "author": "string", 
+                  "year": "string",
+                  "edition": "string",
+                  "condition": "string",
+                  "language": "string",
+                  "notes": "string",
+                  "estimatedValue": "string"
+                }`;
 
                 const result = await model.generateContent([
-                    prompt,
-                    {
-                        inlineData: {
-                            mimeType: 'image/jpeg',
-                            data: base64Image
-                        }
-                    }
+                    { text: prompt },
+                    { inlineData: { mimeType: 'image/jpeg', data: base64Image } }
                 ]);
                 
                 const response = await result.response;
-                const text = response.text();
-                
-                // Clean up the response to extract JSON
-                const jsonMatch = text.match(/\{[\s\S]*\}/);
-                if (!jsonMatch) {
-                    throw new Error('Could not parse AI response');
-                }
-                
-                return JSON.parse(jsonMatch[0]);
+                return JSON.parse(response.text());
+
             } catch (error) {
                 console.error('Analysis error:', error);
-                if (error.message.includes('API')) {
-                    throw new Error('Invalid API key. Please check your Gemini API key.');
-                }
+                if (error.message.includes('API key')) throw new Error('Invalid API Key.');
                 throw new Error('AI analysis failed. Please try again.');
             }
         };
